@@ -1,8 +1,8 @@
 import sys
 import psutil
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout,
-                             QProgressBar, QGridLayout)
-from PyQt5.QtCore import QTimer
+                             QProgressBar, QGridLayout, QPushButton, QTextEdit)
+from PyQt5.QtCore import QTimer, QProcess
 import os
 
 class SystemMonitor(QWidget):
@@ -14,7 +14,7 @@ class SystemMonitor(QWidget):
 
     def initUI(self):
         self.setWindowTitle('RK3588 System Monitor')
-        self.setGeometry(100, 100, 400, 300)
+        self.setGeometry(100, 100, 400, 400)
 
         self.cpu_temp_label = QLabel('CPU Temperature: ')
         self.cpu_temp_value = QLabel('-')
@@ -39,7 +39,22 @@ class SystemMonitor(QWidget):
         layout.addWidget(self.disk_io_write_label, 4, 0)
         layout.addWidget(self.disk_io_write_value, 4, 1)
 
-        self.setLayout(layout)
+        self.update_button = QPushButton("Update")
+        self.update_output = QTextEdit()
+        self.update_output.setReadOnly(True)
+
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(layout)
+        main_layout.addWidget(self.update_button)
+        main_layout.addWidget(self.update_output)
+
+        self.setLayout(main_layout)
+
+        self.update_button.clicked.connect(self.run_update_script)
+        self.process = QProcess(self)
+        self.process.readyReadStandardOutput.connect(self.update_output_display)
+        self.process.readyReadStandardError.connect(self.update_output_display)
+        self.process.finished.connect(self.update_finished)
 
     def initData(self):
         self.disk_io_counters = psutil.disk_io_counters()
@@ -67,7 +82,7 @@ class SystemMonitor(QWidget):
                     except ValueError:
                         print(f"Error: Invalid temperature value: {temp_raw}")
                         self.cpu_temp_value.setText("Error")
-                return
+                    return
 
             temp_path = "/sys/class/thermal/thermal_zone1/temp"
             if os.path.exists(temp_path):
@@ -79,7 +94,7 @@ class SystemMonitor(QWidget):
                     except ValueError:
                         print(f"Error: Invalid temperature value: {temp_raw}")
                         self.cpu_temp_value.setText("Error")
-                return
+                    return
 
             self.cpu_temp_value.setText("N/A")
 
@@ -120,6 +135,20 @@ class SystemMonitor(QWidget):
             print(f"Error getting Disk IO: {e}")
             self.disk_io_read_value.setText("Error")
             self.disk_io_write_value.setText("Error")
+
+    def run_update_script(self):
+        self.update_output.clear()
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auto-update.sh")
+        self.process.start("sudo", [script_path])
+
+    def update_output_display(self):
+        output = self.process.readAllStandardOutput().data().decode()
+        error = self.process.readAllStandardError().data().decode()
+        self.update_output.append(output)
+        self.update_output.append(error)
+
+    def update_finished(self, exitCode, exitStatus):
+        self.update_output.append(f"Update process finished with exit code {exitCode}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
